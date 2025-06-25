@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.api import api_router
 
 app = FastAPI(
@@ -6,6 +7,14 @@ app = FastAPI(
     description="Backend services for the YOLO-AUTO platform.",
     version="0.1.0",
     openapi_url="/api/v1/openapi.json"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Allows the React dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix="/api/v1")
