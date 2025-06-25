@@ -1,12 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, message, Space, Popconfirm } from 'antd';
 import apiClient from '../services/api';
-
-interface YoloVersion {
-  id: number;
-  name: string;
-  repo_url?: string;
-}
+import type { YoloVersion } from '../models/yolo';
 
 const YoloVersionList = () => {
   const [versions, setVersions] = useState<YoloVersion[]>([]);
@@ -75,7 +70,7 @@ const YoloVersionList = () => {
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id' },
     { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Repo URL', dataIndex: 'repo_url', key: 'repo_url' },
+    { title: 'Description', dataIndex: 'description', key: 'description' },
     {
       title: 'Action',
       key: 'action',
@@ -113,8 +108,8 @@ const YoloVersionList = () => {
           <Form.Item name="name" label="Version Name" rules={[{ required: true, message: 'Please input the version name!' }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="repo_url" label="Repository URL">
-            <Input />
+                    <Form.Item name="description" label="Description">
+            <Input.TextArea />
           </Form.Item>
         </Form>
       </Modal>

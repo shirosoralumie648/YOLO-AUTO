@@ -1,20 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, message, Space, Popconfirm, Select } from 'antd';
-import apiClient from '../services/api';
-
-// A simplified interface for YOLO versions, used in the selector.
-interface YoloVersion {
-  id: number;
-  name: string;
-}
-
-interface YoloModule {
-  id: number;
-  name: string;
-  module_type: string;
-  config_path?: string;
-  yolo_version_id: number;
-}
+import apiClient, { getYoloModules, getYoloVersions } from '../services/api';
+import type { YoloModule, YoloVersion } from '../models/yolo';
 
 const { Option } = Select;
 
@@ -25,18 +12,18 @@ const YoloModuleList = () => {
   const [editingModule, setEditingModule] = useState<YoloModule | null>(null);
   const [form] = Form.useForm();
 
-  const fetchModules = async () => {
+    const fetchModules = async () => {
     try {
-      const response = await apiClient.get('/yolo-modules/');
+      const response = await getYoloModules();
       setModules(response.data);
     } catch (error) {
       message.error('Failed to fetch YOLO modules.');
     }
   };
 
-  const fetchVersions = async () => {
+    const fetchVersions = async () => {
     try {
-      const response = await apiClient.get('/yolo-versions/');
+      const response = await getYoloVersions();
       setVersions(response.data);
     } catch (error) {
       message.error('Failed to fetch YOLO versions for selector.');
@@ -144,7 +131,7 @@ const YoloModuleList = () => {
           <Form.Item name="config_path" label="Config Path">
             <Input />
           </Form.Item>
-           <Form.Item name="yolo_version_id" label="Associated YOLO Version" rules={[{ required: true, message: 'Please select a YOLO version!' }]}>
+                      <Form.Item name="yolo_version_id" label="Associated YOLO Version">
             <Select placeholder="Select a version">
               {versions.map(version => (
                 <Option key={version.id} value={version.id}>{version.name}</Option>
