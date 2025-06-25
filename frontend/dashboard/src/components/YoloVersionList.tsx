@@ -77,7 +77,6 @@ const YoloVersionList = () => {
     { title: 'ID', dataIndex: 'id', key: 'id' },
     { title: 'Name', dataIndex: 'name', key: 'name' },
     { title: 'Repo URL', dataIndex: 'repo_url', key: 'repo_url' },
-    { title: 'Paper URL', dataIndex: 'paper_url', key: 'paper_url' },
     {
       title: 'Action',
       key: 'action',
@@ -116,9 +115,6 @@ const YoloVersionList = () => {
             <Input />
           </Form.Item>
           <Form.Item name="repo_url" label="Repository URL">
-            <Input />
-          </Form.Item>
-          <Form.Item name="paper_url" label="Paper URL">
             <Input />
           </Form.Item>
         </Form>

@@ -15,7 +15,7 @@ const App: React.FC = () => {
   ];
 
   return (
-    <Layout className="layout">
+    <Layout className="layout" style={{ minHeight: '100vh' }}>
       <Header>
         <div className="logo" />
         <Menu
@@ -27,7 +27,7 @@ const App: React.FC = () => {
         />
       </Header>
       <Content style={{ padding: '0 50px' }}>
-        <div className="site-layout-content" style={{ background: '#fff', padding: 24, minHeight: 280, marginTop: 24 }}>
+        <div className="site-layout-content" style={{ background: '#fff', padding: 24, minHeight: 'calc(100vh - 188px)', marginTop: 24 }}>
           {currentView === 'versions' && <YoloVersionList />}
           {currentView === 'modules' && <YoloModuleList />}
         </div>
