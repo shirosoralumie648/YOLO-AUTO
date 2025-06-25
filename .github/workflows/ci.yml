@@ -21,19 +21,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Conda
+        uses: conda-incubator/setup-miniconda@v3
         with:
+          activate-environment: yolo-auto-backend
+          environment-file: backend/environment.yml
           python-version: '3.10'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-
-      - name: Install dependencies
-        run: poetry install
+          auto-activate-base: false
 
       - name: Lint with Ruff
-        run: poetry run ruff check .
+        shell: bash -l {0}
+        run: ruff check .
 
       - name: Test with pytest
-        run: poetry run pytest
+        shell: bash -l {0}
+        run: pytest
