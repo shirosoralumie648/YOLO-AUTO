@@ -17,7 +17,7 @@ const App: React.FC = () => {
   return (
     <Layout className="layout" style={{ minHeight: '100vh' }}>
       <Header>
-        <div className="logo" />
+        <div className="logo">YOLO-AUTO</div>
         <Menu
           theme="dark"
           mode="horizontal"

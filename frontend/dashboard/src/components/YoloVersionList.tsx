@@ -6,7 +6,6 @@ interface YoloVersion {
   id: number;
   name: string;
   repo_url?: string;
-  paper_url?: string;
 }
 
 const YoloVersionList = () => {
@@ -108,7 +107,7 @@ const YoloVersionList = () => {
         open={isModalVisible} 
         onOk={handleOk} 
         onCancel={handleCancel}
-        destroyOnClose // This will destroy the modal and its form states when closed
+        destroyOnHidden // This will destroy the modal and its form states when closed
       >
         <Form form={form} layout="vertical" name="form_in_modal" initialValues={editingVersion || {}}>
           <Form.Item name="name" label="Version Name" rules={[{ required: true, message: 'Please input the version name!' }]}>
