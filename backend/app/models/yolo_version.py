@@ -8,7 +8,6 @@ class YoloVersion(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
     repo_url = Column(String, nullable=True)
-    paper_url = Column(String, nullable=True)
     default_input_size = Column(String, default="640x640")
     performance_metrics = Column(JSON, nullable=True)
     config_schema = Column(JSON, nullable=True)

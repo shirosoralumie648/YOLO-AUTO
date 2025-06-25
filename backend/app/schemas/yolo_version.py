@@ -5,7 +5,6 @@ from typing import Optional, Any
 class YoloVersionBase(BaseModel):
     name: str
     repo_url: Optional[str] = None
-    paper_url: Optional[str] = None
     default_input_size: Optional[str] = "640x640"
     performance_metrics: Optional[dict] = None
     config_schema: Optional[dict] = None
