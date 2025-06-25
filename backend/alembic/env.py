@@ -7,33 +7,25 @@ from sqlalchemy import pool
 
 from alembic import context
 
+# Add the project's root directory to the Python path to find the app module.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Set the database URL from the application's config
+# Set the database URL from the application's config.
 from app.core.config import DATABASE_URL
-
 if DATABASE_URL:
     config.set_main_option("sqlalchemy.url", str(DATABASE_URL))
-else:
-    # Handle case where DATABASE_URL might not be set, e.g., in a CI environment
-    # without a .env file. You might want to log a warning or raise an error.
-    pass
-
-# Add the project's root directory to the Python path.
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Import the application's models and Base.
+# Import the application's models and Base for 'autogenerate' support.
 from app.db.base_class import Base
-import app.models.yolo_version  # Import your models here
-
-# Set the target metadata for autogenerate support.
+import app.models.yolo_version  # Import all your models here
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
