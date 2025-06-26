@@ -390,6 +390,37 @@ const YoloEditor = () => {
           </Space>
         </div>
         <div className="reactflow-wrapper" ref={reactFlowWrapper}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            fitView
+          >
+            <Controls />
+            <MiniMap />
+            <Background />
+          </ReactFlow>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 使用 ReactFlowProvider 包装组件以便正确使用 useReactFlow hook
+const YoloEditorWithProvider = () => (
+  <ReactFlowProvider>
+    <YoloEditor />
+  </ReactFlowProvider>
+);
+
+export default YoloEditorWithProvider;
+          </Space>
+        </div>
+        <div className="reactflow-wrapper" ref={reactFlowWrapper}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
