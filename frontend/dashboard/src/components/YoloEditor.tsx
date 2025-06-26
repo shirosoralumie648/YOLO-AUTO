@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -55,6 +55,55 @@ const formatNodeLabel = (type: string, args: any[]): string => {
   return `${type}(${filteredArgs.join(', ')})`;
 };
 
+// 节点样式函数 - 根据模块类型获取合适的样式
+const getNodeStyle = (moduleType: string) => {
+  const baseStyle = {
+    padding: '10px',
+    borderRadius: '8px',
+    border: '1px solid #ccc',
+    backgroundColor: '#fff',
+    color: '#333',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+  };
+  
+  switch(moduleType) {
+    case 'Conv':
+      return { ...baseStyle, backgroundColor: '#f0f5ff', borderColor: '#adc6ff' };
+    case 'C3':
+      return { ...baseStyle, backgroundColor: '#f6ffed', borderColor: '#b7eb8f' };
+    case 'SPPF':
+      return { ...baseStyle, backgroundColor: '#e6f7ff', borderColor: '#91d5ff' };
+    case 'Concat':
+      return { ...baseStyle, backgroundColor: '#f9f0ff', borderColor: '#d3adf7' };
+    case 'Detect':
+      return { ...baseStyle, backgroundColor: '#fff7e6', borderColor: '#ffd591' };
+    default:
+      return baseStyle;
+  }
+};
+
+// 获取模块描述信息的辅助函数
+const getModuleDescription = (type: string, args: any[]): string => {
+  switch (type) {
+    case 'Conv':
+      return `Convolutional Layer: ${args[0]} filters, kernel size ${args[1]}, stride ${args[2]}.`;
+    case 'C3':
+      return `C3 Module: ${args[0]} output channels, ${args[1]} repetitions.`;
+    case 'SPPF':
+      return `Spatial Pyramid Pooling Fast: ${args[0]} output channels, ${args[1]} kernel size.`;
+    case 'Concat':
+      return `Concatenation Layer: combines inputs.`;
+    case 'Detect':
+      return `Detection Head: for model output.`;
+    default:
+      return `Module type: ${type}, arguments: ${JSON.stringify(args)}`;
+  }
+};
+
+// --- YAML Parsing & Conversion Logic ---
+
 // --- YAML Parsing and Layout Logic (Layout v4) ---
 const parseYoloYaml = (yamlContent: string | undefined): { nodes: Node<NodeData>[], edges: Edge[], doc: YoloArchitecture | null } => {
   if (!yamlContent) return { nodes: [], edges: [], doc: null };
@@ -75,54 +124,39 @@ const parseYoloYaml = (yamlContent: string | undefined): { nodes: Node<NodeData>
     const neckModules = detectIndex === -1 ? doc.head : doc.head.slice(0, detectIndex);
     const headModules = detectIndex === -1 ? [] : doc.head.slice(detectIndex);
 
-    const createNodesForSection = (modules: any[], group: 'backbone' | 'neck' | 'head', offset: number) => {
-      modules.forEach((module, index) => {
-        const globalIndex = index + offset;
-        const nodeId = `${group}-${index}`;
-        const [, , type, args] = module;
-        moduleMap[globalIndex] = nodeId;
 
-        // 根据节点类型设置不同的样式
-        const getNodeStyle = (nodeType: string) => {
-          const baseStyle = { 
-            width: 'auto', 
-            minWidth: 180, 
-            height: 'auto', 
-            minHeight: 40, 
-            padding: '10px',
-            border: '1px solid #ccc',
-            borderRadius: '5px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'           
-          };
-          
-          // 根据模块类型应用不同的样式
-          switch(nodeType) {
-            case 'Conv':
-            case 'C3':
-            case 'SPPF':
-              return { ...baseStyle, backgroundColor: '#e6f7ff', borderColor: '#91d5ff' };
-            case 'Concat':
-              return { ...baseStyle, backgroundColor: '#f9f0ff', borderColor: '#d3adf7' };
-            case 'Detect':
-              return { ...baseStyle, backgroundColor: '#f6ffed', borderColor: '#b7eb8f' };
-            default:
-              return baseStyle;
-          }
-        };
+    
+    const createNodesForSection = (modules: any[], sectionPrefix: string, startIndex: number) => {
+      modules.forEach((module, localIndex) => {
+        const globalIndex = startIndex + localIndex;
+        const nodeId = `${sectionPrefix}-${localIndex}`;
+        moduleMap[globalIndex] = nodeId;
         
+        // 获取并格式化节点标题与详情
+        const moduleType = module[2] as string;
+        const moduleArgs = module[3] as any[];
+        const moduleLabel = formatNodeLabel(moduleType, moduleArgs);
+        const description = getModuleDescription(moduleType, moduleArgs);
+        const style = getNodeStyle(moduleType);
+        
+        // 调试信息
+        console.log(`Creating node ${nodeId} for module index ${globalIndex}, type ${moduleType}`);
+        console.log(`Module input indices: ${JSON.stringify(module[0])}`);
+        
+        // 添加节点到节点数组
         nodes.push({
           id: nodeId,
           type: 'default',
           position: { x: 0, y: 0 }, // Placeholder, will be calculated later
           data: { 
-            label: formatNodeLabel(type, args), 
-            type, 
-            args,
-            description: getModuleDescription(type, args)
+            label: moduleLabel,
+            type: moduleType, 
+            args: moduleArgs,
+            description,
           },
-          parentNode: `${group}-group`,
+          parentNode: `${sectionPrefix}-group`,
           extent: 'parent',
-          style: getNodeStyle(type),
+          style,
         });
       });
     };
@@ -154,19 +188,95 @@ const parseYoloYaml = (yamlContent: string | undefined): { nodes: Node<NodeData>
     nodes.push({ id: 'head-group', type: 'group', position: { x: 1200, y: 0 }, data: { label: 'Head' }, style: { backgroundColor: 'rgba(240, 240, 255, 0.7)' } });
     createNodesForSection(headModules, 'head', doc.backbone.length + neckModules.length);
 
-    // --- Edge Creation ---
+    // --- 边的生成与渲染 ---
+    // 定义边的样式函数
+    const getEdgeStyle = (_sourceType: string, targetType: string) => {
+      // 根据连接的模块类型设置不同的边样式
+      const baseStyle = {
+        strokeWidth: 3,
+        stroke: '#2563eb',
+        opacity: 0.9,
+        transition: '0.3s',
+      };
+      
+      // 特殊连接的样式处理
+      if (targetType === 'Concat') {
+        return { ...baseStyle, stroke: '#722ed1', strokeWidth: 4 }; // 特殊强调Concat边
+      } else if (targetType === 'Detect') {
+        return { ...baseStyle, stroke: '#52c41a', strokeWidth: 4 }; // 特殊强调Detect边
+      }
+      
+      return baseStyle;
+    };
+    
+    // 边的创建
     const allModules = [...doc.backbone, ...neckModules, ...headModules];
+    
+    // 调试信息 - 进行边创建前检查模块映射
+    console.log('Module mapping table:', moduleMap);
+    console.log('Total modules:', allModules.length);
+    
+    // 保存所有模块类型的映射，用于边样式
+    const moduleTypes: {[key: string]: string} = {};
+    allModules.forEach((module, globalIndex) => {
+      const nodeId = moduleMap[globalIndex];
+      if (nodeId) {
+        moduleTypes[nodeId] = module[2] as string;
+      }
+    });
+    
+    console.log('Module types:', moduleTypes);
+    
+    // 创建边
     allModules.forEach((module, globalIndex) => {
       const targetNodeId = moduleMap[globalIndex];
+      const targetType = module[2] as string;
       let fromIndices = module[0];
-      if (!Array.isArray(fromIndices)) fromIndices = [fromIndices];
+      
+      // 处理数据类型差异，确保不论是单个节点还是数组，都正确处理
+      if (typeof fromIndices === 'number') {
+        fromIndices = [fromIndices];
+      } else if (!Array.isArray(fromIndices)) {
+        console.warn(`Invalid fromIndices for module ${globalIndex}:`, fromIndices);
+        fromIndices = [];
+      }
+      
+      console.log(`Processing module ${globalIndex} (${targetType}) with target node ${targetNodeId}`);
+      console.log(`Input indices:`, fromIndices);
+
+      // 递归遍历所有输入节点创建边
       fromIndices.forEach((fromIndex: number) => {
-        if (fromIndex > -1) {
-          const sourceNodeId = moduleMap[fromIndex];
-          if (sourceNodeId && targetNodeId) {
-            edges.push({ id: `e-${sourceNodeId}-${targetNodeId}-${globalIndex}`, source: sourceNodeId, target: targetNodeId, markerEnd: { type: MarkerType.ArrowClosed } });
-          }
+        if (fromIndex === -1) {
+          console.log(`Skipping -1 input for node ${targetNodeId}`);
+          return; // Skip inputs from nowhere (-1)
         }
+        
+        const sourceNodeId = moduleMap[fromIndex];
+        const sourceType = moduleTypes[sourceNodeId] || 'unknown';
+        
+        if (!sourceNodeId || !targetNodeId) {
+          console.warn(`Missing node mapping for edge: source=${fromIndex}(${sourceNodeId}), target=${globalIndex}(${targetNodeId})`);
+          return;
+        }
+        
+        console.log(`Creating edge: ${sourceNodeId}(${sourceType}) -> ${targetNodeId}(${targetType})`);
+        
+        // 创建边并应用样式
+        edges.push({
+          id: `edge-${fromIndex}-${globalIndex}`,
+          source: sourceNodeId,
+          target: targetNodeId,
+          type: 'smoothstep',
+          style: getEdgeStyle(sourceType, targetType),
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 20,
+            height: 20,
+            color: sourceType === 'Concat' ? '#722ed1' : targetType === 'Detect' ? '#52c41a' : '#2563eb',
+          },
+          animated: true,
+          zIndex: 1000, // 确保边在节点上方显示
+        });
       });
     });
 
@@ -249,7 +359,7 @@ const parseYoloYaml = (yamlContent: string | undefined): { nodes: Node<NodeData>
       const positions: Record<string, number> = {};
       
       // 遍历每个层级
-      Object.entries(levelGroups).forEach(([levelStr, nodeIds]) => {
+      Object.entries(levelGroups).forEach(([_, nodeIds]) => {
         // 根据权重排序
         const sortedNodeIds = [...nodeIds].sort((a, b) => getSortWeight(a) - getSortWeight(b));
         
@@ -417,16 +527,74 @@ const convertToYaml = (
 };
 
 // --- 3. Main YoloEditor Component ---
-const YoloEditor = () => {
-  const [versions, setVersions] = useState<YoloVersion[]>([]);
-  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
-  const [originalDoc, setOriginalDoc] = useState<YoloArchitecture | null>(null);
-
-  const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes] = useState<Node<NodeData>[]>(initialNodes);
+  const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedNode, setSelectedNode] = useState<Node<NodeData> | null>(null);
-  const { setViewport } = useReactFlow();
+  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
+  const [versions, setVersions] = useState<YoloVersion[]>([]);
+  const [originalDoc, setOriginalDoc] = useState<YoloArchitecture | null>(null);
+  const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
+
+  const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
+
+  const { getViewport, project } = useReactFlow();
+
+  const onDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  };
+
+  const onDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('application/reactflow');
+    const position = project({
+      x: event.clientX,
+      y: event.clientY - 40,
+    });
+    const newNode: Node<NodeData> = {
+      id: `node-${nodes.length}`,
+      type,
+      position,
+      data: { label: type },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  };
+
+  const onNodesChange = (changes: any) => console.log('onNodesChange', changes);
+
+  const onEdgesChange = (changes: any) => console.log('onEdgesChange', changes);
+
+  const onConnect = useCallback((params: Edge | Connection) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
+
+  const onNodeClick = useCallback((_: React.MouseEvent, node: Node<NodeData>) => setSelectedNode(node), []);
+
+  const onPaneClick = useCallback(() => setSelectedNode(null), []);
+
+  const onNodeDataChange = (nodeId: string, newData: Partial<NodeData>) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId) {
+          return { ...node, data: { ...node.data, ...newData } };
+        }
+        return node;
+      })
+    );
+    if (selectedNode && selectedNode.id === nodeId) {
+      setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...newData } } : null);
+    }
+  };
+
+  const handleSave = async () => {
+    if (selectedVersionId === null) return message.error('Please select a version first.');
+    const version = versions.find((v) => v.id === selectedVersionId);
+    if (!version) return message.error('Selected version not found.');
+
+    const yamlString = convertToYaml(nodes, edges, originalDoc);
+    try {
+      await updateYoloVersion(selectedVersionId, { ...version, architecture: yamlString });
+      message.success('Architecture saved successfully!');
+    } catch (error) { message.error('Failed to save architecture.'); }
+  };
 
   useEffect(() => {
     const fetchVersions = async () => {
@@ -446,7 +614,6 @@ const YoloEditor = () => {
       setNodes(newNodes);
       setEdges(newEdges);
       setOriginalDoc(doc);
-      // Reset viewport to fit new nodes
       setTimeout(() => setViewport({ x: 0, y: 0, zoom: 1 }), 100);
     } else {
       setNodes([]);
@@ -455,33 +622,6 @@ const YoloEditor = () => {
     }
   };
 
-  const onConnect = useCallback((params: Edge | Connection) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
-
-  const onNodeClick = useCallback((_: React.MouseEvent, node: Node<NodeData>) => {
-    setSelectedNode(node);
-  }, []);
-
-  const onPaneClick = useCallback(() => setSelectedNode(null), []);
-
-  const onNodeDataChange = (nodeId: string, newData: Partial<NodeData>) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          const data = { ...node.data, ...newData };
-          return { ...node, data };
-        }
-        return node;
-      })
-    );
-    setSelectedNode((prev) => prev ? { ...prev, data: { ...prev.data, ...newData } } : null);
-  };
-
-  const handleSave = async () => {
-    if (selectedVersionId === null) return message.error('Please select a version first.');
-    const version = versions.find((v) => v.id === selectedVersionId);
-    if (!version) return message.error('Selected version not found.');
-
-    const yamlString = convertToYaml(nodes, edges, originalDoc);
     try {
       await updateYoloVersion(selectedVersionId, { ...version, architecture: yamlString });
       message.success('Architecture saved successfully!');
@@ -489,8 +629,22 @@ const YoloEditor = () => {
   };
 
   return (
-    <div className="yolo-editor-layout">
-      <aside className="editor-sidebar">
+    <div className="yolo-editor-layout" onKeyDown={onKeyDown} tabIndex={0}>
+            <aside className="editor-sidebar">
+        <div className="module-palette">
+          <h3>Module Palette</h3>
+          <p style={{color: '#888', fontSize: '12px', margin: '-10px 0 10px 0', fontStyle: 'italic'}}>Drag modules to the canvas</p>
+          {yoloModules.map((module) => (
+            <div
+              key={module.type}
+              className="dndnode"
+              onDragStart={(event) => onDragStart(event, module.type)}
+              draggable
+            >
+              {module.type}
+            </div>
+          ))}
+        </div>
         <div className="module-palette">
           <h3>Module Palette</h3>
           {yoloModules.map((module) => (
@@ -502,16 +656,122 @@ const YoloEditor = () => {
         <div className="parameter-editor">
           {selectedNode ? (
             <>
-              <h3>Edit: {selectedNode.data.type}</h3>
-              <label>Label:</label>
-              <Input
-                value={selectedNode.data.label}
-                onChange={(e) => onNodeDataChange(selectedNode.id, { label: e.target.value })}
-              />
-              {/* More parameter inputs will go here */}
+              <h3>模块编辑: {selectedNode.data.type}</h3>
+              
+              {/* 模块类型选择器 */}
+              <div className="param-group">
+                <label>模块类型:</label>
+                <Select 
+                  value={selectedNode.data.type} 
+                  style={{ width: '100%' }}
+                  onChange={(value) => {
+                    // 根据类型提供默认参数
+                    let defaultArgs: any[] = [];
+                    switch(value) {
+                      case 'Conv':
+                        defaultArgs = [3, 64, 1]; // 卷积核大小, 输出通道, 步长
+                        break;
+                      case 'C3':
+                        defaultArgs = [128, 1]; // 输出通道, 瓶颈比例
+                        break;
+                      case 'SPPF':
+                        defaultArgs = [512, 5]; // 输出通道, 池化核心大小
+                        break;
+                      case 'Concat':
+                        defaultArgs = [1]; // 连接维度
+                        break;
+                      case 'Detect':
+                        defaultArgs = [80]; // 类别数量
+                        break;
+                    }
+                    
+                    // 更新节点数据
+                    onNodeDataChange(selectedNode.id, { 
+                      type: value,
+                      args: defaultArgs,
+                      label: formatNodeLabel(value, defaultArgs),
+                      description: getModuleDescription(value, defaultArgs)
+                    });
+                  }}
+                >
+                  {yoloModules.map(m => (
+                    <Select.Option key={m.type} value={m.type}>{m.type}</Select.Option>
+                  ))}
+                </Select>
+              </div>
+              
+              {/* 模块参数编辑 */}
+              <div className="param-group">
+                <label>模块参数:</label>
+                {selectedNode.data.args?.map((arg, index) => (
+                  <div key={index} className="arg-input">
+                    <label>参数 {index + 1}:</label>
+                    <Input
+                      type="number"
+                      value={arg}
+                      onChange={(e) => {
+                        const newArgs = [...(selectedNode.data.args || [])];
+                        newArgs[index] = parseInt(e.target.value) || 0;
+                        const newLabel = formatNodeLabel(selectedNode.data.type || '', newArgs);
+                        const newDesc = getModuleDescription(selectedNode.data.type || '', newArgs);
+                        onNodeDataChange(selectedNode.id, { 
+                          args: newArgs,
+                          label: newLabel,
+                          description: newDesc
+                        });
+                      }}
+                    />
+                  </div>
+                ))}
+                
+                {/* 添加/移除参数按钮 */}
+                <div className="arg-buttons">
+                  <Button 
+                    size="small" 
+                    onClick={() => {
+                      const newArgs = [...(selectedNode.data.args || []), 0];
+                      onNodeDataChange(selectedNode.id, { 
+                        args: newArgs,
+                        label: formatNodeLabel(selectedNode.data.type || '', newArgs)
+                      });
+                    }}
+                  >
+                    添加参数
+                  </Button>
+                  <Button 
+                    size="small"
+                    danger 
+                    disabled={!selectedNode.data.args?.length}
+                    onClick={() => {
+                      if (!selectedNode.data.args?.length) return;
+                      const newArgs = selectedNode.data.args.slice(0, -1);
+                      onNodeDataChange(selectedNode.id, { 
+                        args: newArgs,
+                        label: formatNodeLabel(selectedNode.data.type || '', newArgs)
+                      });
+                    }}
+                  >
+                    删除参数
+                  </Button>
+                </div>
+              </div>
+              
+              {/* 描述信息 */}
+              <div className="param-group">
+                <label>模块描述:</label>
+                <Input.TextArea
+                  value={selectedNode.data.description}
+                  rows={3}
+                  onChange={(e) => onNodeDataChange(selectedNode.id, { description: e.target.value })}
+                />
+              </div>
+
+              <Button danger onClick={handleDeleteNode} style={{ width: '100%', marginTop: '10px' }}>
+                Delete Node
+              </Button>
             </>
           ) : (
-            <div className="description">Select a node to edit its parameters.</div>
+            <div className="description">选择一个节点来编辑其参数</div>
           )}
         </div>
       </aside>
@@ -533,7 +793,7 @@ const YoloEditor = () => {
             </Button>
           </Space>
         </div>
-        <div className="reactflow-wrapper" ref={reactFlowWrapper}>
+        <div className="reactflow-wrapper" ref={reactFlowWrapper} onDragOver={onDragOver} onDrop={onDrop}>
           <ReactFlow
             nodes={nodes}
             edges={edges}

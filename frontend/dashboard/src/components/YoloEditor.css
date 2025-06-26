@@ -5,13 +5,14 @@
 }
 
 .editor-sidebar {
-  width: 250px;
+  width: 280px; /* 增加宽度以适应更丰富的参数编辑面板 */
   border-right: 1px solid #eee;
-  padding: 10px;
+  padding: 15px;
   display: flex;
   flex-direction: column;
   gap: 20px;
   background-color: #f9f9f9;
+  overflow-y: auto; /* 添加滚动条，防止内容溢出 */
 }
 
 .editor-main {
@@ -21,8 +22,11 @@
 }
 
 .editor-toolbar {
-  padding: 10px;
+  padding: 10px 15px;
   border-bottom: 1px solid #eee;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  z-index: 10;
 }
 
 .reactflow-wrapper {
@@ -34,26 +38,45 @@
   margin-top: 0;
   margin-bottom: 15px;
   border-bottom: 1px solid #ddd;
-  padding-bottom: 5px;
+  padding-bottom: 8px;
+  color: #1890ff; /* Ant Design 主色调 */
+  font-size: 16px;
 }
 
 .dndnode {
-  padding: 10px;
+  padding: 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   cursor: grab;
   background-color: white;
   text-align: center;
+  transition: all 0.3s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.dndnode:hover {
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24,144,255,0.2);
 }
 
 .dndnode:active {
   cursor: grabbing;
 }
 
+/* 参数编辑面板样式 */
+.parameter-editor {
+  background-color: white;
+  border-radius: 4px;
+  padding: 15px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
 .parameter-editor .description {
   color: #888;
   font-style: italic;
+  padding: 20px 0;
+  text-align: center;
 }
 
 .parameter-editor label {
@@ -61,4 +84,58 @@
   margin-top: 10px;
   margin-bottom: 5px;
   font-weight: bold;
+  color: #333;
+}
+
+/* 参数组样式 */
+.param-group {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px dashed #eee;
+}
+
+.param-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.arg-input {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.arg-input label {
+  width: 70px;
+  margin: 0 10px 0 0;
+  flex-shrink: 0;
+  font-weight: normal;
+}
+
+.arg-buttons {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+/* 节点样式覆盖 */
+.react-flow__node {
+  transition: all 0.2s;
+}
+
+.react-flow__node:hover {
+  box-shadow: 0 0 0 2px #1890ff;
+  z-index: 10;
+}
+
+/* 边样式覆盖 */
+.react-flow__edge-path:hover {
+  stroke-width: 5;
+  opacity: 1;
+}
+
+/* 组样式覆盖 */
+.react-flow__node-group {
+  padding: 15px;
+  border-radius: 8px;
 }
