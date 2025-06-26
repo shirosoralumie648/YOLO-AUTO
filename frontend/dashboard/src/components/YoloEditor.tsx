@@ -8,6 +8,7 @@ import ReactFlow, {
   addEdge,
   ReactFlowProvider,
   useReactFlow,
+  MarkerType,
 } from 'reactflow';
 import type { Connection, Edge, Node } from 'reactflow';
 import { Select, Button, Space, message, Input } from 'antd';
@@ -249,7 +250,7 @@ const convertToYaml = (
       sourceIndices.sort((a, b) => a - b); // Ensure consistent order for multi-input modules
 
       const from = sourceIndices.length === 1 ? sourceIndices[0] : (sourceIndices.length === 0 ? -1 : sourceIndices);
-      const { type, args } = node.data;
+      const { type = 'Conv', args = [] } = node.data;
       // The 'number' field (e.g., repetition count) is preserved from the original doc for now.
       // A more advanced editor would allow changing this.
       const originalModule = [...originalDoc.backbone, ...originalDoc.head].find(m => m[2] === type && JSON.stringify(m[3]) === JSON.stringify(args));
@@ -270,6 +271,10 @@ const convertToYaml = (
   // 5. Serialize to YAML
   return yaml.dump(newDoc, { indent: 2, noArrayIndent: true });
 };
+
+// --- 3. Main YoloEditor Component ---
+const YoloEditor = () => {
+  const [versions, setVersions] = useState<YoloVersion[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
   const [originalDoc, setOriginalDoc] = useState<YoloArchitecture | null>(null);
 
