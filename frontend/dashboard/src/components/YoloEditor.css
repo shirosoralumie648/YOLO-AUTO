@@ -1,0 +1,64 @@
+.yolo-editor-layout {
+  display: flex;
+  height: 85vh;
+  width: 100%;
+}
+
+.editor-sidebar {
+  width: 250px;
+  border-right: 1px solid #eee;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background-color: #f9f9f9;
+}
+
+.editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-toolbar {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.reactflow-wrapper {
+  flex: 1;
+}
+
+.module-palette h3,
+.parameter-editor h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 5px;
+}
+
+.dndnode {
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  cursor: grab;
+  background-color: white;
+  text-align: center;
+}
+
+.dndnode:active {
+  cursor: grabbing;
+}
+
+.parameter-editor .description {
+  color: #888;
+  font-style: italic;
+}
+
+.parameter-editor label {
+  display: block;
+  margin-top: 10px;
+  margin-bottom: 5px;
+  font-weight: bold;
+}

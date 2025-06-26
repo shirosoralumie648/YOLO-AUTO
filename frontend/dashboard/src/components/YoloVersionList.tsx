@@ -1,12 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, Input, message, Space, Popconfirm } from 'antd';
+import { Table, Button, Modal, Form, Input, message, Space, Popconfirm, Upload } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
+import Editor from 'react-simple-code-editor';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-yaml';
+import 'prismjs/themes/prism.css'; //Example style, you can use another
+
 import apiClient from '../services/api';
 import type { YoloVersion } from '../models/yolo';
 
 const YoloVersionList = () => {
   const [versions, setVersions] = useState<YoloVersion[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const [editingVersion, setEditingVersion] = useState<YoloVersion | null>(null);
+    const [editingVersion, setEditingVersion] = useState<YoloVersion | null>(null);
+  const [architectureContent, setArchitectureContent] = useState('');
   const [form] = Form.useForm();
 
   const fetchVersions = async () => {
@@ -22,15 +29,15 @@ const YoloVersionList = () => {
     fetchVersions();
   }, []);
 
-  const handleAdd = () => {
+    const handleAdd = () => {
     setEditingVersion(null);
-    form.resetFields();
+    setArchitectureContent('');
     setIsModalVisible(true);
   };
 
-  const handleEdit = (record: YoloVersion) => {
+    const handleEdit = (record: YoloVersion) => {
     setEditingVersion(record);
-    form.setFieldsValue(record);
+        setArchitectureContent(record.architecture || '');
     setIsModalVisible(true);
   };
 
@@ -47,13 +54,15 @@ const YoloVersionList = () => {
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
+            const data = { ...values, architecture: architectureContent };
+
       if (editingVersion) {
         // Update existing version
-        await apiClient.put(`/yolo-versions/${editingVersion.id}`, values);
+        await apiClient.put(`/yolo-versions/${editingVersion.id}`, data);
         message.success('YOLO version updated successfully!');
       } else {
         // Create new version
-        await apiClient.post('/yolo-versions/', values);
+        await apiClient.post('/yolo-versions/', data);
         message.success('YOLO version added successfully!');
       }
       setIsModalVisible(false);
@@ -104,12 +113,49 @@ const YoloVersionList = () => {
         onCancel={handleCancel}
         destroyOnHidden // This will destroy the modal and its form states when closed
       >
-        <Form form={form} layout="vertical" name="form_in_modal" initialValues={editingVersion || {}}>
+                        <Form form={form} layout="vertical" name="form_in_modal" initialValues={editingVersion || {}}>
           <Form.Item name="name" label="Version Name" rules={[{ required: true, message: 'Please input the version name!' }]}>
             <Input />
           </Form.Item>
                     <Form.Item name="description" label="Description">
-            <Input.TextArea />
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item label="Architecture (YAML)">
+            <Upload
+              accept=".yaml,.yml"
+              beforeUpload={(file) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                  const content = e.target?.result as string;
+                  setArchitectureContent(content);
+                };
+                reader.readAsText(file);
+                return false; // Prevent automatic upload
+              }}
+              showUploadList={false}
+            >
+              <Button icon={<UploadOutlined />}>Upload YAML</Button>
+            </Upload>
+          </Form.Item>
+                    <Form.Item
+            label="Architecture (YAML)"
+            required
+            validateStatus={!architectureContent ? 'error' : ''}
+            help={!architectureContent ? 'Please provide the architecture YAML!' : ''}
+          >
+            <Editor
+              value={architectureContent}
+              onValueChange={setArchitectureContent}
+              highlight={code => Prism.highlight(code, Prism.languages.yaml, 'yaml')}
+              padding={10}
+              style={{
+                fontFamily: '"Fira code", "Fira Mono", monospace',
+                fontSize: 12,
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                minHeight: '200px',
+              }}
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -16,8 +16,10 @@ class YoloVersionCreate(YoloVersionBase):
 
 
 # Properties to receive on item update
-class YoloVersionUpdate(YoloVersionBase):
-    pass
+class YoloVersionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    architecture: Optional[str] = None
 
 
 # Properties shared by models stored in DB

@@ -69,6 +69,13 @@ def update_yolo_version(
     yolo_version = crud.yolo_version.get(db=db, id=id)
     if not yolo_version:
         raise HTTPException(status_code=404, detail="YOLO version not found")
+    
+    # Check for name conflict
+    if yolo_version_in.name and yolo_version_in.name != yolo_version.name:
+        existing_version = crud.yolo_version.get_by_name(db, name=yolo_version_in.name)
+        if existing_version:
+            raise HTTPException(status_code=400, detail="A YOLO version with this name already exists.")
+
     yolo_version = crud.yolo_version.update(db=db, db_obj=yolo_version, obj_in=yolo_version_in)
     return yolo_version
 
