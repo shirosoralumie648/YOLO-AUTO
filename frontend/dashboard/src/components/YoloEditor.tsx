@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import type { KeyboardEvent } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -477,23 +478,24 @@ const convertToYaml = (
   edges: Edge[],
   originalDoc: YoloArchitecture | null
 ): string => {
-  if (!originalDoc) return '';
+  if (!originalDoc) {
+    console.error("convertToYaml called with null originalDoc.");
+    return '';
+  }
 
   const newDoc = JSON.parse(JSON.stringify(originalDoc)) as YoloArchitecture;
 
-  // 1. Separate nodes into groups and sort them topologically/positionally
   const backboneNodes = nodes.filter(n => n.parentNode === 'backbone-group').sort((a, b) => a.position.y - b.position.y);
   const neckNodes = nodes.filter(n => n.parentNode === 'neck-group').sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
   const headNodes = nodes.filter(n => n.parentNode === 'head-group').sort((a, b) => a.position.y - b.position.y);
 
-  // 2. Create the global index map based on the sorted order
   const nodeIdToIndexMap: { [id: string]: number } = {};
   let currentIndex = 0;
-  backboneNodes.forEach(n => { nodeIdToIndexMap[n.id] = currentIndex++; });
-  neckNodes.forEach(n => { nodeIdToIndexMap[n.id] = currentIndex++; });
-  headNodes.forEach(n => { nodeIdToIndexMap[n.id] = currentIndex++; });
+  const allSortedNodes = [...backboneNodes, ...neckNodes, ...headNodes];
+  allSortedNodes.forEach(n => {
+    nodeIdToIndexMap[n.id] = currentIndex++;
+  });
 
-  // 3. Rebuild module lists using the global index map
   const buildModuleList = (sectionNodes: Node<NodeData>[]): [number | number[], number, string, any[]][] => {
     return sectionNodes.map((node): [number | number[], number, string, any[]] => {
       const sourceIndices = edges
@@ -501,107 +503,124 @@ const convertToYaml = (
         .map(e => nodeIdToIndexMap[e.source])
         .filter((i): i is number => i !== undefined);
 
-      sourceIndices.sort((a, b) => a - b); // Ensure consistent order for multi-input modules
+      sourceIndices.sort((a, b) => a - b);
 
       const from = sourceIndices.length === 1 ? sourceIndices[0] : (sourceIndices.length === 0 ? -1 : sourceIndices);
       const { type = 'Conv', args = [] } = node.data;
-      // The 'number' field (e.g., repetition count) is preserved from the original doc for now.
-      // A more advanced editor would allow changing this.
-      const originalModule = [...originalDoc.backbone, ...originalDoc.head].find(m => m[2] === type && JSON.stringify(m[3]) === JSON.stringify(args));
+      
+      const originalModule = [...(originalDoc.backbone || []), ...(originalDoc.head || [])].find(
+        m => m[2] === type && JSON.stringify(m[3]) === JSON.stringify(args)
+      );
       const moduleNumber = originalModule ? originalModule[1] : 1;
 
       return [from, moduleNumber, type, args];
     });
   };
 
-  const backboneModules = buildModuleList(backboneNodes);
-  const neckModules = buildModuleList(neckNodes);
-  const headModules = buildModuleList(headNodes);
+  newDoc.backbone = buildModuleList(backboneNodes);
+  newDoc.head = [...buildModuleList(neckNodes), ...buildModuleList(headNodes)];
 
-  // 4. Assemble the final doc structure
-  newDoc.backbone = backboneModules;
-  newDoc.head = [...neckModules, ...headModules];
-
-  // 5. Serialize to YAML
-  return yaml.dump(newDoc, { indent: 2, noArrayIndent: true });
+  return yaml.dump(newDoc, { indent: 2, lineWidth: -1 });
 };
 
 // --- 3. Main YoloEditor Component ---
-  const [nodes, setNodes] = useState<Node<NodeData>[]>(initialNodes);
-  const [edges, setEdges] = useState<Edge[]>([]);
+const YoloEditor = () => {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<Node<NodeData> | null>(null);
-  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
   const [versions, setVersions] = useState<YoloVersion[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
   const [originalDoc, setOriginalDoc] = useState<YoloArchitecture | null>(null);
-  const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
-
-  const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
-
-  const { getViewport, project } = useReactFlow();
-
-  const onDragOver = (event: React.DragEvent) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-  };
-
-  const onDrop = (event: React.DragEvent) => {
-    event.preventDefault();
-    const type = event.dataTransfer.getData('application/reactflow');
-    const position = project({
-      x: event.clientX,
-      y: event.clientY - 40,
-    });
-    const newNode: Node<NodeData> = {
-      id: `node-${nodes.length}`,
-      type,
-      position,
-      data: { label: type },
-    };
-    setNodes((nds) => [...nds, newNode]);
-  };
-
-  const onNodesChange = (changes: any) => console.log('onNodesChange', changes);
-
-  const onEdgesChange = (changes: any) => console.log('onEdgesChange', changes);
+  const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const { project } = useReactFlow();
 
   const onConnect = useCallback((params: Edge | Connection) => setEdges((eds) => addEdge(params, eds)), [setEdges]);
 
-  const onNodeClick = useCallback((_: React.MouseEvent, node: Node<NodeData>) => setSelectedNode(node), []);
+  const onNodeClick = useCallback((_: React.MouseEvent, node: Node<NodeData>) => {
+    setSelectedNode(node);
+  }, []);
 
-  const onPaneClick = useCallback(() => setSelectedNode(null), []);
-
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
+  
   const onNodeDataChange = (nodeId: string, newData: Partial<NodeData>) => {
     setNodes((nds) =>
       nds.map((node) => {
         if (node.id === nodeId) {
-          return { ...node, data: { ...node.data, ...newData } };
+          const currentData = { ...node.data, ...newData };
+          const newLabel = formatNodeLabel(currentData.type || '', currentData.args || []);
+          const newDesc = getModuleDescription(currentData.type || '', currentData.args || []);
+          const finalData = { ...currentData, label: newLabel, description: newDesc };
+          return { ...node, data: finalData };
         }
         return node;
       })
     );
+
     if (selectedNode && selectedNode.id === nodeId) {
-      setSelectedNode(prev => prev ? { ...prev, data: { ...prev.data, ...newData } } : null);
+      const currentData = { ...selectedNode.data, ...newData };
+      const newLabel = formatNodeLabel(currentData.type || '', currentData.args || []);
+      const newDesc = getModuleDescription(currentData.type || '', currentData.args || []);
+      const finalData = { ...currentData, label: newLabel, description: newDesc };
+      setSelectedNode((sn) => ({ ...sn!, data: finalData }));
     }
   };
 
-  const handleSave = async () => {
-    if (selectedVersionId === null) return message.error('Please select a version first.');
-    const version = versions.find((v) => v.id === selectedVersionId);
-    if (!version) return message.error('Selected version not found.');
+  const handleDeleteNode = useCallback(() => {
+    if (!selectedNode) return;
+    const newNodes = nodes.filter((n) => n.id !== selectedNode.id);
+    const newEdges = edges.filter((e) => e.source !== selectedNode.id && e.target !== selectedNode.id);
+    setNodes(newNodes);
+    setEdges(newEdges);
+    setSelectedNode(null);
+  }, [selectedNode, nodes, edges, setNodes, setEdges]);
 
-    const yamlString = convertToYaml(nodes, edges, originalDoc);
-    try {
-      await updateYoloVersion(selectedVersionId, { ...version, architecture: yamlString });
-      message.success('Architecture saved successfully!');
-    } catch (error) { message.error('Failed to save architecture.'); }
+  const onKeyDown = useCallback((event: KeyboardEvent) => {
+    if ((event.key === 'Delete' || event.key === 'Backspace') && selectedNode) {
+      event.preventDefault();
+      handleDeleteNode();
+    }
+  }, [handleDeleteNode, selectedNode]);
+  
+  const onDragStart = (event: React.DragEvent, nodeType: string) => {
+    event.dataTransfer.setData('application/reactflow', nodeType);
+    event.dataTransfer.effectAllowed = 'move';
   };
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    if (!reactFlowWrapper.current) return;
+    const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+    const type = event.dataTransfer.getData('application/reactflow');
+    if (typeof type === 'undefined' || !type) return;
+    const position = project({ x: event.clientX - reactFlowBounds.left, y: event.clientY - reactFlowBounds.top });
+    const newNode: Node<NodeData> = {
+      id: `dndnode_${+new Date()}`,
+      type: 'default',
+      position,
+      data: { label: `${type} Node`, type, args: [], description: getModuleDescription(type, []) },
+      style: getNodeStyle(type),
+    };
+    setNodes((nds) => nds.concat(newNode));
+  }, [project, setNodes]);
 
   useEffect(() => {
     const fetchVersions = async () => {
       try {
-        const response = await getYoloVersions();
-        setVersions(response.data);
-      } catch (error) { message.error('Failed to fetch YOLO versions.'); }
+        const fetchedVersions = await getYoloVersions();
+        // The lint error indicates that getYoloVersions returns an AxiosResponse object.
+        // The actual data is in the `data` property.
+        setVersions(fetchedVersions.data);
+      } catch (error) {
+        message.error('Failed to fetch YOLO versions.');
+        console.error("Error fetching versions:", error);
+      }
     };
     fetchVersions();
   }, []);
@@ -609,166 +628,101 @@ const convertToYaml = (
   const handleVersionChange = (versionId: number) => {
     setSelectedVersionId(versionId);
     const version = versions.find((v) => v.id === versionId);
-    if (version) {
+    if (version?.architecture) {
       const { nodes: newNodes, edges: newEdges, doc } = parseYoloYaml(version.architecture);
       setNodes(newNodes);
       setEdges(newEdges);
       setOriginalDoc(doc);
-      setTimeout(() => setViewport({ x: 0, y: 0, zoom: 1 }), 100);
     } else {
       setNodes([]);
       setEdges([]);
       setOriginalDoc(null);
     }
+    setSelectedNode(null);
   };
-
+  
+  const handleSave = async () => {
+    if (!selectedVersionId || !originalDoc) {
+      message.error('No version selected or original data missing.');
+      return;
+    }
+    const yamlString = convertToYaml(nodes, edges, originalDoc);
+    const version = versions.find(v => v.id === selectedVersionId);
+    if (!version) {
+      message.error('Selected version not found.');
+      return;
+    }
     try {
       await updateYoloVersion(selectedVersionId, { ...version, architecture: yamlString });
       message.success('Architecture saved successfully!');
-    } catch (error) { message.error('Failed to save architecture.'); }
+    } catch (error) {
+      message.error('Failed to save architecture.');
+    }
   };
+  
+  useEffect(() => {
+    const handleGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
+        onKeyDown(event as unknown as KeyboardEvent);
+    };
+    document.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+        document.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [onKeyDown]);
 
   return (
-    <div className="yolo-editor-layout" onKeyDown={onKeyDown} tabIndex={0}>
-            <aside className="editor-sidebar">
+    <div className="yolo-editor-layout" onKeyDown={onKeyDown} tabIndex={-1}>
+      <aside className="editor-sidebar">
         <div className="module-palette">
-          <h3>Module Palette</h3>
-          <p style={{color: '#888', fontSize: '12px', margin: '-10px 0 10px 0', fontStyle: 'italic'}}>Drag modules to the canvas</p>
+          <h3>模块面板</h3>
+          <div className="description">从这里拖动模块到画布中</div>
           {yoloModules.map((module) => (
-            <div
-              key={module.type}
-              className="dndnode"
-              onDragStart={(event) => onDragStart(event, module.type)}
-              draggable
-            >
+            <div key={module.type} className="dndnode" onDragStart={(event) => onDragStart(event, module.type)} draggable>
               {module.type}
             </div>
           ))}
         </div>
-        <div className="module-palette">
-          <h3>Module Palette</h3>
-          {yoloModules.map((module) => (
-            <div key={module.type} className="dndnode" draggable>
-              {module.type}
-            </div>
-          ))}
-        </div>
-        <div className="parameter-editor">
+        <div className="param-editor">
+          <h3>参数编辑器</h3>
           {selectedNode ? (
             <>
-              <h3>模块编辑: {selectedNode.data.type}</h3>
-              
-              {/* 模块类型选择器 */}
               <div className="param-group">
                 <label>模块类型:</label>
-                <Select 
-                  value={selectedNode.data.type} 
-                  style={{ width: '100%' }}
-                  onChange={(value) => {
-                    // 根据类型提供默认参数
-                    let defaultArgs: any[] = [];
-                    switch(value) {
-                      case 'Conv':
-                        defaultArgs = [3, 64, 1]; // 卷积核大小, 输出通道, 步长
-                        break;
-                      case 'C3':
-                        defaultArgs = [128, 1]; // 输出通道, 瓶颈比例
-                        break;
-                      case 'SPPF':
-                        defaultArgs = [512, 5]; // 输出通道, 池化核心大小
-                        break;
-                      case 'Concat':
-                        defaultArgs = [1]; // 连接维度
-                        break;
-                      case 'Detect':
-                        defaultArgs = [80]; // 类别数量
-                        break;
-                    }
-                    
-                    // 更新节点数据
-                    onNodeDataChange(selectedNode.id, { 
-                      type: value,
-                      args: defaultArgs,
-                      label: formatNodeLabel(value, defaultArgs),
-                      description: getModuleDescription(value, defaultArgs)
-                    });
-                  }}
-                >
-                  {yoloModules.map(m => (
-                    <Select.Option key={m.type} value={m.type}>{m.type}</Select.Option>
-                  ))}
-                </Select>
+                <Input value={selectedNode.data.type} disabled />
               </div>
-              
-              {/* 模块参数编辑 */}
               <div className="param-group">
-                <label>模块参数:</label>
+                <label>模块名称:</label>
+                <Input value={selectedNode.data.label} onChange={(e) => onNodeDataChange(selectedNode.id, { label: e.target.value })} />
+              </div>
+              <div className="param-group">
+                <label>参数 (args):</label>
                 {selectedNode.data.args?.map((arg, index) => (
                   <div key={index} className="arg-input">
-                    <label>参数 {index + 1}:</label>
-                    <Input
-                      type="number"
-                      value={arg}
-                      onChange={(e) => {
+                    <Input type="number" value={arg} onChange={(e) => {
                         const newArgs = [...(selectedNode.data.args || [])];
                         newArgs[index] = parseInt(e.target.value) || 0;
-                        const newLabel = formatNodeLabel(selectedNode.data.type || '', newArgs);
-                        const newDesc = getModuleDescription(selectedNode.data.type || '', newArgs);
-                        onNodeDataChange(selectedNode.id, { 
-                          args: newArgs,
-                          label: newLabel,
-                          description: newDesc
-                        });
+                        onNodeDataChange(selectedNode.id, { args: newArgs });
                       }}
                     />
                   </div>
                 ))}
-                
-                {/* 添加/移除参数按钮 */}
                 <div className="arg-buttons">
-                  <Button 
-                    size="small" 
-                    onClick={() => {
+                  <Button size="small" onClick={() => {
                       const newArgs = [...(selectedNode.data.args || []), 0];
-                      onNodeDataChange(selectedNode.id, { 
-                        args: newArgs,
-                        label: formatNodeLabel(selectedNode.data.type || '', newArgs)
-                      });
-                    }}
-                  >
-                    添加参数
-                  </Button>
-                  <Button 
-                    size="small"
-                    danger 
-                    disabled={!selectedNode.data.args?.length}
-                    onClick={() => {
+                      onNodeDataChange(selectedNode.id, { args: newArgs });
+                    }}>添加参数</Button>
+                  <Button size="small" danger disabled={!selectedNode.data.args?.length} onClick={() => {
                       if (!selectedNode.data.args?.length) return;
                       const newArgs = selectedNode.data.args.slice(0, -1);
-                      onNodeDataChange(selectedNode.id, { 
-                        args: newArgs,
-                        label: formatNodeLabel(selectedNode.data.type || '', newArgs)
-                      });
-                    }}
-                  >
-                    删除参数
-                  </Button>
+                      onNodeDataChange(selectedNode.id, { args: newArgs });
+                    }}>删除参数</Button>
                 </div>
               </div>
-              
-              {/* 描述信息 */}
               <div className="param-group">
                 <label>模块描述:</label>
-                <Input.TextArea
-                  value={selectedNode.data.description}
-                  rows={3}
-                  onChange={(e) => onNodeDataChange(selectedNode.id, { description: e.target.value })}
-                />
+                <Input.TextArea value={selectedNode.data.description} rows={3} onChange={(e) => onNodeDataChange(selectedNode.id, { description: e.target.value })} />
               </div>
-
-              <Button danger onClick={handleDeleteNode} style={{ width: '100%', marginTop: '10px' }}>
-                Delete Node
-              </Button>
+              <Button danger onClick={handleDeleteNode} style={{ width: '100%', marginTop: '10px' }}>Delete Node</Button>
             </>
           ) : (
             <div className="description">选择一个节点来编辑其参数</div>
@@ -778,19 +732,10 @@ const convertToYaml = (
       <div className="editor-main">
         <div className="editor-toolbar">
           <Space>
-            <Select
-              placeholder="Select a YOLO version to edit"
-              style={{ width: 240 }}
-              onChange={handleVersionChange}
-              value={selectedVersionId}
-            >
-              {versions.map((v) => (
-                <Select.Option key={v.id} value={v.id}>{v.name}</Select.Option>
-              ))}
+            <Select placeholder="Select a YOLO version to edit" style={{ width: 240 }} onChange={handleVersionChange} value={selectedVersionId}>
+              {versions.map((v) => (<Select.Option key={v.id} value={v.id}>{v.name}</Select.Option>))}
             </Select>
-            <Button onClick={handleSave} type="primary" disabled={!selectedVersionId}>
-              Save Architecture
-            </Button>
+            <Button onClick={handleSave} type="primary" disabled={!selectedVersionId}>Save Architecture</Button>
           </Space>
         </div>
         <div className="reactflow-wrapper" ref={reactFlowWrapper} onDragOver={onDragOver} onDrop={onDrop}>
