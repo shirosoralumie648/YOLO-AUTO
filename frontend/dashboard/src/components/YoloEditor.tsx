@@ -24,6 +24,7 @@ interface NodeData {
   label: string;
   type?: string;
   args?: any[];
+  description?: string; // 节点详细描述信息
 }
 
 interface YoloArchitecture {
@@ -80,16 +81,68 @@ const parseYoloYaml = (yamlContent: string | undefined): { nodes: Node<NodeData>
         const nodeId = `${group}-${index}`;
         const [, , type, args] = module;
         moduleMap[globalIndex] = nodeId;
+
+        // 根据节点类型设置不同的样式
+        const getNodeStyle = (nodeType: string) => {
+          const baseStyle = { 
+            width: 'auto', 
+            minWidth: 180, 
+            height: 'auto', 
+            minHeight: 40, 
+            padding: '10px',
+            border: '1px solid #ccc',
+            borderRadius: '5px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'           
+          };
+          
+          // 根据模块类型应用不同的样式
+          switch(nodeType) {
+            case 'Conv':
+            case 'C3':
+            case 'SPPF':
+              return { ...baseStyle, backgroundColor: '#e6f7ff', borderColor: '#91d5ff' };
+            case 'Concat':
+              return { ...baseStyle, backgroundColor: '#f9f0ff', borderColor: '#d3adf7' };
+            case 'Detect':
+              return { ...baseStyle, backgroundColor: '#f6ffed', borderColor: '#b7eb8f' };
+            default:
+              return baseStyle;
+          }
+        };
+        
         nodes.push({
           id: nodeId,
           type: 'default',
-          position: { x: 0, y: 0 }, // Placeholder
-          data: { label: formatNodeLabel(type, args), type, args },
+          position: { x: 0, y: 0 }, // Placeholder, will be calculated later
+          data: { 
+            label: formatNodeLabel(type, args), 
+            type, 
+            args,
+            description: getModuleDescription(type, args)
+          },
           parentNode: `${group}-group`,
           extent: 'parent',
-          style: { width: 'auto', minWidth: 180, height: 'auto', minHeight: 40, padding: '10px' },
+          style: getNodeStyle(type),
         });
       });
+    };
+    
+    // 获取模块描述信息的辅助函数
+    const getModuleDescription = (type: string, args: any[]): string => {
+      switch(type) {
+        case 'Conv':
+          return `卷积层: ${args[0]}x${args[0]}, 输出通道: ${args[1]}`;
+        case 'C3':
+          return `Cross Stage Partial: 输出通道: ${args[0]}`;
+        case 'SPPF':
+          return `空间金字塔池化: 核大小: ${args[0]}`;
+        case 'Concat':
+          return `特征融合: 维度: ${args[0] || 1}`;
+        case 'Detect':
+          return `检测层: 类别数: ${args[0]}`;
+        default:
+          return `${type}: ${args.join(', ')}`;
+      }
     };
 
     nodes.push({ id: 'backbone-group', type: 'group', position: { x: 0, y: 0 }, data: { label: 'Backbone' }, style: { backgroundColor: 'rgba(255, 240, 240, 0.7)' } });
@@ -117,80 +170,171 @@ const parseYoloYaml = (yamlContent: string | undefined): { nodes: Node<NodeData>
       });
     });
 
-    // --- Positioning (Layout v5) ---
+    // --- Positioning (Layout v6) - 论文级的分层分区布局 ---
     const nodePositions: { [id: string]: { x: number, y: number } } = {};
-    let yBackbone = 80;
-    doc.backbone.forEach((_, index) => {
-      nodePositions[`backbone-${index}`] = { x: 150, y: yBackbone };
-      yBackbone += 90;
-    });
-
-    const neckNodeIds = neckModules.map((_, i) => `neck-${i}`);
-    const nodeLevels: { [id: string]: number } = {};
-    const calculateNodeLevel = (nodeId: string, path: Set<string> = new Set()): number => {
-      if (path.has(nodeId)) return 0;
-      if (nodeLevels[nodeId] !== undefined) return nodeLevels[nodeId];
-      path.add(nodeId);
-
-      const moduleIndexInNeck = parseInt(nodeId.split('-')[1]);
-      const module = neckModules[moduleIndexInNeck];
-      let fromIndices = module[0];
-      if (!Array.isArray(fromIndices)) fromIndices = [fromIndices];
-
-      let maxParentLevel = -1;
-      for (const fromIndex of fromIndices) {
-        if (fromIndex === -1) continue;
-        const sourceNodeId = moduleMap[fromIndex];
-        if (!sourceNodeId) continue;
-
-        let parentLevel = -1;
-        if (sourceNodeId.startsWith('backbone-')) {
-          parentLevel = 0;
-        } else if (sourceNodeId.startsWith('neck-')) {
-          parentLevel = calculateNodeLevel(sourceNodeId, path);
-        }
-        maxParentLevel = Math.max(maxParentLevel, parentLevel);
-      }
-      path.delete(nodeId);
-      return nodeLevels[nodeId] = maxParentLevel + 1;
-    };
-    neckNodeIds.forEach(id => calculateNodeLevel(id));
-
-    const levels: { [level: number]: string[] } = {};
-    neckNodeIds.forEach(id => {
-      const level = nodeLevels[id] || 0;
-      if (!levels[level]) levels[level] = [];
-      levels[level].push(id);
-    });
-
-    const getMinFromIndex = (nodeId: string): number => {
-        const moduleIndex = parseInt(nodeId.split('-')[1]);
-        const module = neckModules[moduleIndex];
-        let fromIndices = module[0];
-        if (!Array.isArray(fromIndices)) fromIndices = [fromIndices];
-        const validIndices = fromIndices.filter(i => i !== -1);
-        return validIndices.length > 0 ? Math.min(...validIndices) : -1;
-    };
-
-    Object.values(levels).forEach(nodesOnLevel => {
-        nodesOnLevel.sort((a, b) => getMinFromIndex(a) - getMinFromIndex(b));
-    });
-
-    Object.keys(levels).forEach(levelStr => {
-      const level = parseInt(levelStr);
-      const nodesOnLevel = levels[level];
-      nodesOnLevel.forEach((nodeId, lane) => {
-        nodePositions[nodeId] = { x: level * 280 + 150, y: lane * 100 + 80 };
+    
+    // ----- 1. Calculate node levels and dependencies -----
+    const calculateNodeLevel = (nodeId: string, visited: Set<string> = new Set<string>()): number => {
+      // 避免循环依赖
+      if (visited.has(nodeId)) return 0;
+      visited.add(nodeId);
+      
+      // 获取进入当前节点的边
+      const incomingEdges = edges.filter(e => e.target === nodeId);
+      if (incomingEdges.length === 0) return 0;
+      
+      // 计算来源节点的最大层级
+      const sourceLevels = incomingEdges.map(e => {
+        return calculateNodeLevel(e.source, new Set(visited)) + 1;
       });
+      
+      return Math.max(...sourceLevels);
+    };
+    
+    // ----- 2. Group nodes by section and level -----
+    const nodeLevels: Record<string, number> = {};
+    const backboneLevels: Record<number, string[]> = {};
+    const neckLevels: Record<number, string[]> = {};
+    const headLevels: Record<number, string[]> = {};
+
+    // 计算节点层级并按层级分组
+    nodes.forEach(node => {
+      if (node.type === 'group') return; // Skip group nodes
+      
+      // 计算节点层级
+      const level = calculateNodeLevel(node.id);
+      nodeLevels[node.id] = level;
+      
+      // 分层分组
+      if (node.parentNode === 'backbone-group') {
+        if (!backboneLevels[level]) backboneLevels[level] = [];
+        backboneLevels[level].push(node.id);
+      } else if (node.parentNode === 'neck-group') {
+        if (!neckLevels[level]) neckLevels[level] = [];
+        neckLevels[level].push(node.id);
+      } else if (node.parentNode === 'head-group') {
+        if (!headLevels[level]) headLevels[level] = [];
+        headLevels[level].push(node.id);
+      }
+    });
+    
+    // ----- 3. 优化节点水平排序 -----
+    // 计算进出节点边数量
+    const incomingEdgesCount: Record<string, number> = {};
+    const outgoingEdgesCount: Record<string, number> = {};
+    
+    edges.forEach(edge => {
+      incomingEdgesCount[edge.target] = (incomingEdgesCount[edge.target] || 0) + 1;
+      outgoingEdgesCount[edge.source] = (outgoingEdgesCount[edge.source] || 0) + 1;
+    });
+    
+    // 根据进入边源节点的Index计算排序权重
+    const getSortWeight = (nodeId: string): number => {
+      const incomingEdgesList = edges.filter(e => e.target === nodeId);
+      if (incomingEdgesList.length === 0) return 0;
+      
+      const weights = incomingEdgesList.map(e => {
+        // 提取源节点的索引
+        const sourceIndex = parseInt(e.source.split('-')[1], 10);
+        return isNaN(sourceIndex) ? 0 : sourceIndex;
+      });
+      
+      // 返回最小权重值作为排序依据
+      return weights.length > 0 ? Math.min(...weights) : 0;
+    };
+    
+    // ----- 4. 计算节点在各自分组内的垂直位置 -----
+    // 对每个层级的节点进行排序，计算垂直位置
+    const calculateVerticalPosition = <T extends Record<number, string[]>>(levelGroups: T): Record<string, number> => {
+      const positions: Record<string, number> = {};
+      
+      // 遍历每个层级
+      Object.entries(levelGroups).forEach(([levelStr, nodeIds]) => {
+        // 根据权重排序
+        const sortedNodeIds = [...nodeIds].sort((a, b) => getSortWeight(a) - getSortWeight(b));
+        
+        // 分配垂直位置
+        sortedNodeIds.forEach((nodeId, index) => {
+          positions[nodeId] = index;
+        });
+      });
+      
+      return positions;
+    };
+    
+    const backboneVerticalPositions = calculateVerticalPosition(backboneLevels);
+    const neckVerticalPositions = calculateVerticalPosition(neckLevels);
+    const headVerticalPositions = calculateVerticalPosition(headLevels);
+    
+    // ----- 5. 应用布局坐标 -----
+    // 计算每个节点的最终坐标
+    nodes.forEach(node => {
+      if (node.type === 'group') return; // 跳过组节点
+      
+      const section = node.parentNode?.split('-')[0] || '';
+      const level = nodeLevels[node.id] || 0;
+      let verticalPos = 0;
+      let x = 0;
+      let y = 0;
+      
+      // 根据分组计算位置
+      switch (section) {
+        case 'backbone':
+          verticalPos = backboneVerticalPositions[node.id] || 0;
+          x = 120 + level * 160; // Backbone从左到右排列
+          y = 80 + verticalPos * 100;
+          break;
+        case 'neck':
+          verticalPos = neckVerticalPositions[node.id] || 0;
+          x = 500 + level * 160; // Neck在Backbone右侧
+          y = 80 + verticalPos * 100;
+          break;
+        case 'head':
+          verticalPos = headVerticalPositions[node.id] || 0;
+          x = 900 + level * 160; // Head在Neck右侧
+          y = 80 + verticalPos * 100;
+          break;
+      }
+      
+      // 更新节点位置
+      nodePositions[node.id] = { x, y };
+    });
+    
+    // ----- 6. 更新组节点大小和位置 -----
+    // 计算组节点的大小和位置
+    const groupNodes = nodes.filter(n => n.type === 'group');
+    groupNodes.forEach(groupNode => {
+      const groupId = groupNode.id;
+      const childNodes = nodes.filter(n => n.parentNode === groupId);
+      
+      if (childNodes.length === 0) return;
+      
+      // 计算组的大小和位置边界
+      const childPositions = childNodes.map(n => nodePositions[n.id] || { x: 0, y: 0 });
+      const minX = Math.min(...childPositions.map(p => p.x)) - 80;
+      const minY = Math.min(...childPositions.map(p => p.y)) - 50;
+      const maxX = Math.max(...childPositions.map(p => p.x)) + 100;
+      const maxY = Math.max(...childPositions.map(p => p.y)) + 50;
+      
+      // 设置组节点位置和大小
+      const groupPos = { x: minX, y: minY };
+      const groupSize = { width: maxX - minX, height: maxY - minY };
+      
+      // 更新组节点
+      groupNode.position = groupPos;
+      groupNode.style = { 
+        ...groupNode.style, 
+        width: groupSize.width, 
+        height: groupSize.height
+      };
     });
 
-    let yHead = 80;
-    headModules.forEach((_, index) => {
-      nodePositions[`head-${index}`] = { x: 150, y: yHead };
-      yHead += 100;
+    // ----- 7. 应用计算好的坐标到子节点 -----
+    nodes.forEach((node) => {
+      if (node.type !== 'group' && nodePositions[node.id]) {
+        node.position = nodePositions[node.id];
+      }
     });
-
-    nodes.forEach(node => { if (nodePositions[node.id]) node.position = nodePositions[node.id]; });
 
     // --- Dynamic Group Sizing ---
     ['backbone', 'neck', 'head'].forEach(group => {
@@ -418,34 +562,3 @@ const YoloEditorWithProvider = () => (
 );
 
 export default YoloEditorWithProvider;
-          </Space>
-        </div>
-        <div className="reactflow-wrapper" ref={reactFlowWrapper}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeClick={onNodeClick}
-              onPaneClick={onPaneClick}
-              fitView
-            >
-              <Controls />
-              <MiniMap />
-              <Background />
-            </ReactFlow>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- 4. Wrapper Component with ReactFlowProvider ---
-const YoloEditorWrapper = () => (
-  <ReactFlowProvider>
-    <YoloEditor />
-  </ReactFlowProvider>
-);
-
-export default YoloEditorWrapper;
